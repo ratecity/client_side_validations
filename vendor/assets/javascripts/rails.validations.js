@@ -407,9 +407,11 @@
         after: function(element, eventData) {},
         before: function(element, eventData) {},
         fail: function(element, message, addError, eventData) {
+          mixpanel.track(eventData.currentTarget.id + '_fail')
           return addError();
         },
         pass: function(element, removeError, eventData) {
+          mixpanel.track(eventData.currentTarget.id + '_pass')
           return removeError();
         }
       },
