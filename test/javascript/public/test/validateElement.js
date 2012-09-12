@@ -5,11 +5,11 @@ module('Validate Element', {
       input_tag: '<div class="field_with_errors"><span id="input_tag" /><label for="user_name" class="message"></label></div>',
       label_tag: '<div class="field_with_errors"><label id="label_tag" /></div>',
       validators: {
-        'user[name]':{"presence":{"message": "must be present"}, "format":{"message":"is invalid","with":/\d+/}},
-        'user[password]':{"confirmation":{"message": "must match confirmation"}},
-        'user[agree]':{"acceptance": {"message": "must be accepted"}},
-        'user[email]':{"uniqueness":{"message": "must be unique"},"presence":{"message": "must be present"}},
-        'user[phone_numbers_attributes][][number]':{"presence":{"message": "must be present"}}
+        'user[name]':{"presence":[{"message": "must be present"}], "format":[{"message":"is invalid","with":/\d+/}]},
+        'user[password]':{"confirmation":[{"message": "must match confirmation"}]},
+        'user[agree]':{"acceptance": [{"message": "must be accepted"}]},
+        'user[email]':{"uniqueness":[{"message": "must be unique"}],"presence":[{"message": "must be present"}]},
+        'user[phone_numbers_attributes][][number]':{"presence":[{"message": "must be present"}]}
       }
     }
 
@@ -61,7 +61,14 @@ module('Validate Element', {
           id: 'user_phone_numbers_attributes_0_number',
           'data-validate': 'true',
           type: 'text'
-        }))
+        })
+        .append($('<input />', {
+          name: 'user[phone_numbers_attributes][0][_destroy]',
+          id: 'user_phone_numbers_attributes_0__destroy',
+          'data-validate': 'true',
+          type: 'hidden',
+          value: "1"
+        })))
         .append($('<label for="user_phone_numbers_attributes_1_number">Phone Number</label>'))
         .append($('<input />', {
           name: 'user[phone_numbers_attributes][1][number]',
@@ -114,8 +121,8 @@ test('Validate nested attributes', function() {
   input = form.find('input#user_phone_numbers_attributes_0_number');
   label = $('label[for="user_phone_numbers_attributes_0_number"]');
   input.trigger('focusout');
-  ok(input.parent().hasClass('field_with_errors'));
-  ok(label.parent().hasClass('field_with_errors'));
+  equal(input.parent().hasClass('field_with_errors'), false);
+  equal(label.parent().hasClass('field_with_errors'), false);
 });
 
 test('Validate when keyup on confirmation', function() {
@@ -323,4 +330,27 @@ test("Don't validate dynamically disabled inputs", function() {
   input.val('');
   input.trigger('focusout');
   ok(!input.parent().hasClass('field_with_errors'));
+});
+
+test('ensure label is scoped to form', function() {
+  var form = $('form#new_user'), input = form.find('input#user_name');
+  var label = $('label[for="user_name"]');
+
+  $('#qunit-fixture')
+    .prepend($('<form />', { id: 'other_form', 'data-validate': true })
+    .append($('<label for="user_name">Name</label>')));
+
+  var otherLabel = $('form#other_form').find('label')
+
+  input.trigger('focusout');
+  ok(!otherLabel.parent().hasClass('field_with_errors'));
+});
+
+test("Return validation result", function() {
+  var input = $('#user_name');
+
+  ok(!input.isValid(ClientSideValidations.forms['new_user'].validators));
+
+  input.val('123').data('changed', true);
+  ok(input.isValid(ClientSideValidations.forms['new_user'].validators));
 });
