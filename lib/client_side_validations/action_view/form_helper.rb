@@ -2,7 +2,7 @@ module ClientSideValidations::ActionView::Helpers
   module FormHelper
     class Error < StandardError; end
 
-    def form_for(record_or_name_or_array, *args, &proc)
+    def form_for(record, *args, &proc)
       options = args.extract_options!
       if options[:validate]
 
@@ -10,21 +10,21 @@ module ClientSideValidations::ActionView::Helpers
         options[:html] ||= {}
         options[:html][:novalidate] = 'novalidate'
 
-        case record_or_name_or_array
+        case record
         when String, Symbol
-          raise ClientSideValidations::ActionView::Helpers::FormHelper::Error, 'Using form_for(:name, @resource) is deprecated in Rails and is not supported with ClientSideValidations. Please use form_for(@resource, :as => :name) instead.'
-        when Array
-          object = record_or_name_or_array.last
+          raise ClientSideValidations::ActionView::Helpers::FormHelper::Error, 'Using form_for(:name, @resource) is not supported with ClientSideValidations. Please use form_for(@resource, :as => :name) instead.'
         else
-          object = record_or_name_or_array
+          object = record.is_a?(Array) ? record.last : record
         end
       end
 
       @validators = {}
 
       # Order matters here. Rails mutates the options object
+      html_id = options[:html][:id] if options[:html]
+      form   = super(record, *(args << options), &proc)
+      options[:id] = html_id if html_id
       script = client_side_form_settings(object, options)
-      form   = super(record_or_name_or_array, *(args << options), &proc)
 
       # Because of the load order requirement above this sub is necessary
       # Would be nice to not do this
@@ -49,9 +49,9 @@ module ClientSideValidations::ActionView::Helpers
       options[:html][:validate] = true if options[:validate]
     end
 
-    def fields_for(record_or_name_or_array, *args, &block)
+    def fields_for(record_or_name_or_array, record_object = nil, options = {}, &block)
       output = super
-      @validators.merge!(args.last[:validators]) if @validators
+      @validators.merge!(options[:validators]) if @validators
       output
     end
 
@@ -70,10 +70,10 @@ module ClientSideValidations::ActionView::Helpers
 
     def client_side_form_settings(object, options)
       if options[:validate]
-        builder = options[:builder] || ActionView::Base.default_form_builder
+        builder = options[:parent_builder]
 
-        if options[:html] && options[:html][:id]
-          var_name = options[:html][:id]
+        if options[:id]
+          var_name = options[:id]
         else
           if Rails.version >= '3.2.0'
             var_name = if object.respond_to?(:persisted?) && object.persisted?
@@ -90,12 +90,10 @@ module ClientSideValidations::ActionView::Helpers
               options[:as] ? "#{options[:as]}_new" : dom_id(object)
             end
           end
-          
-          
         end
 
         content_tag(:script) do
-          "//<![CDATA[\nwindow.ClientSideValidations.forms['#{var_name}'] = #{builder.client_side_form_settings(options, self).merge(:validators => 'validator_hash').to_json};\n//]]>".html_safe
+          "//<![CDATA[\nif(window.ClientSideValidations==undefined)window.ClientSideValidations={};if(window.ClientSideValidations.forms==undefined)window.ClientSideValidations.forms={};window.ClientSideValidations.forms['#{var_name}'] = #{builder.client_side_form_settings(options, self).merge(:validators => 'validator_hash').to_json};\n//]]>".html_safe
         end
       end
     end

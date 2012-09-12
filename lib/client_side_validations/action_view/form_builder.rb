@@ -24,9 +24,9 @@ module ClientSideValidations::ActionView::Helpers
         alias_method_chain :grouped_collection_select, :client_side_validations
         alias_method_chain :time_zone_select,          :client_side_validations
 
-        def self.client_side_form_settings(options, form_helper)
+        def client_side_form_settings(options, form_helper)
           {
-            :type => self.to_s,
+            :type => self.class.to_s,
             :input_tag => form_helper.class.field_error_proc.call(%{<span id="input_tag" />},  Struct.new(:error_message, :tag_id).new([], "")),
             :label_tag => form_helper.class.field_error_proc.call(%{<label id="label_tag" />}, Struct.new(:error_message, :tag_id).new([], ""))
           }
@@ -82,7 +82,7 @@ module ClientSideValidations::ActionView::Helpers
         options.merge!("data-validate" => true)
         name = options[:name] || "#{@object_name}[#{method}]"
         child_index = @options[:child_index] ? "(\\d+|#{Regexp.escape(@options[:child_index])})" : "\\d+"
-        name = name.gsub(/_attributes\]\[#{child_index}\]/, '_attributes][]')
+        name = name.to_s.gsub(/_attributes\]\[#{child_index}\]/, '_attributes][]')
         @options[:validators].merge!("#{name}#{options[:multiple] ? "[]" : nil}" => validators)
       end
     end
@@ -90,62 +90,73 @@ module ClientSideValidations::ActionView::Helpers
     def filter_validators(method, filters)
       if validators = @object.client_side_validation_hash[method]
         unfiltered_validators = validators.inject({}) do |unfiltered_validators, validator|
-          unfiltered_validators[validator.first] = validator.last
-          if has_filter_for_validator?(validator, filters)
-            if filter_validator?(validator, filters)
-              unfiltered_validators.delete(validator.first)
-            elsif force_validator_despite_conditional?(validator, filters) && !can_run_validator?(validator, method)
-              unfiltered_validators.delete(validator.first)
-            end
-          else
-            if (conditional = (validator.last[:if] || validator.last[:unless]))
-              result = case conditional
-                when Symbol
-                  if @object.respond_to?(conditional)
-                    @object.send(conditional)
-                  else
-                    raise(ArgumentError, "unknown method called '#{conditional}'")
-                  end
-                when String
-                  eval(conditional)
-                when Proc
-                  conditional.call(@object)
-                end
-
-              # :if was specified and result is false OR :unless was specified and result was true
-              if (validator.last[:if] && !result) || (validator.last[:unless] && result)
-                unfiltered_validators.delete(validator.first)
+          kind = validator.first
+          unfiltered_validators[kind] = validator.last.inject([]) do |validators_array, validator_hash|
+            filter_out = false
+            if has_filter_for_validator?(kind, filters)
+              if filter_validator?(kind, filters)
+                filter_out = true
+              elsif force_validator_despite_conditional?(kind, filters) && cannot_run_validator?(validator_hash, method)
+                filter_out = true
               end
+            else
+              if (conditional = (validator_hash[:if] || validator_hash[:unless]))
+                result = case conditional
+                  when Symbol
+                    if @object.respond_to?(conditional)
+                      @object.send(conditional)
+                    else
+                      raise(ArgumentError, "unknown method called '#{conditional}'")
+                    end
+                  when String
+                    eval(conditional)
+                  when Proc
+                    conditional.call(@object)
+                  end
+
+                # :if was specified and result is false OR :unless was specified and result was true
+                if (validator_hash[:if] && !result) || (validator_hash[:unless] && result)
+                  filter_out = true
+                end
+              end
+
             end
+
+            unless filter_out
+              validators_array << validator_hash.clone
+              validators_array.last.delete_if { |key, value| key == :if || key == :unless }
+            end
+
+            validators_array
           end
-          unfiltered_validators[validator.first].delete(:if)     if unfiltered_validators[validator.first]
-          unfiltered_validators[validator.first].delete(:unless) if unfiltered_validators[validator.first]
+
           unfiltered_validators
         end
 
+        unfiltered_validators.delete_if { |k, v| v.blank? }
         unfiltered_validators.empty? ? nil : unfiltered_validators
       end
     end
 
-    def has_filter_for_validator?(validator, filters)
-      filters && (filters == true || filters.key?(validator.first))
+    def has_filter_for_validator?(kind, filters)
+      filters && (filters == true || filters.key?(kind))
     end
 
-    def filter_validator?(validator, filters)
-      filters != true && filters[validator.first] == false
+    def filter_validator?(kind, filters)
+      filters != true && filters[kind] == false
     end
 
-    def force_validator_despite_conditional?(validator, filters)
-      filters == true || filters[validator.first] == true
+    def force_validator_despite_conditional?(kind, filters)
+      filters == true || filters[kind] == true
     end
 
-    def can_run_validator?(validator, method)
+    def cannot_run_validator?(validator_hash, method)
       result        = true
-      if_result     = run_if_validator(validator.last[:if], method)
-      unless_result = run_unless_validator(validator.last[:unless], method)
+      if_result     = run_if_validator(validator_hash[:if], method)
+      unless_result = run_unless_validator(validator_hash[:unless], method)
       result        = result && if_result unless if_result.nil?
       result        = result && unless_result unless unless_result.nil?
-      result
+      !result
     end
 
     def run_if_validator(conditional, method)
@@ -173,4 +184,3 @@ module ClientSideValidations::ActionView::Helpers
     end
   end
 end
-
